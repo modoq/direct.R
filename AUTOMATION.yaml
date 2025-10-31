@@ -1,0 +1,437 @@
+# =============================================================================
+# CLAUDE DESKTOP + RSTUDIO INTEGRATION - AUTOMATED INSTALLATION
+# =============================================================================
+# Version: 2.1
+# Date: 2025-10-31
+# For: Claude with Desktop Commander MCP
+# Docs: INSTALLATION.md
+#
+# USAGE: Give this file to Claude with Desktop Commander and say:
+# "Install the RStudio MCP integration using AUTOMATION.yaml"
+# =============================================================================
+
+metadata:
+  name: "RStudio MCP Integration (btw + director)"
+  version: "2.1"
+  modes:
+    - name: "SAFE"
+      description: "Only btw - read documentation & inspect workspace"
+      security: "High"
+      tools: ["btw"]
+    - name: "DEV_SAFE"
+      description: "btw + director - write files & execute code safely"
+      security: "Medium"
+      tools: ["btw", "direct"]
+  
+  components:
+    btw:
+      source: "Posit/RStudio Team"
+      purpose: "Documentation & environment inspection"
+      features:
+        - "Read R package documentation"
+        - "Inspect workspace objects"
+        - "Describe data frames"
+        - "Session information"
+    
+    direct:
+      source: "Community"
+      purpose: "Safe file writing & code execution (The Director)"
+      features:
+        - "Write files (.Rmd, .qmd, .R, .csv, .json)"
+        - "Execute R code (with security checks)"
+        - "Workspace restriction"
+        - "Block dangerous commands"
+      branding: "btw watches, director directs"
+
+# =============================================================================
+# SYSTEM DETECTION
+# =============================================================================
+
+system_detection:
+  check_os:
+    command: "uname -s"
+    expected: ["Darwin", "Linux", "MINGW", "MSYS"]
+  
+  check_r:
+    command: "Rscript --version"
+    required: "R >= 4.0"
+  
+  check_rstudio:
+    paths:
+      darwin: "/Applications/RStudio.app"
+      windows: "C:/Program Files/RStudio"
+      linux: "/usr/bin/rstudio"
+  
+  detect_config_path:
+    darwin: "~/Library/Application Support/Claude/claude_desktop_config.json"
+    windows: "%APPDATA%/Claude/claude_desktop_config.json"
+    linux: "~/.config/Claude/claude_desktop_config.json"
+
+# =============================================================================
+# INSTALLATION STEPS
+# =============================================================================
+
+installation:
+  
+  # ---------------------------------------------------------------------------
+  # STEP 1: Install R Packages
+  # ---------------------------------------------------------------------------
+  step_1_install_packages:
+    description: "Install required R packages"
+    mode: ["SAFE", "DEV_SAFE"]
+    
+    commands:
+      - description: "Install base packages"
+        language: "r"
+        code: |
+          install.packages(c("mcptools", "pak", "ellmer", "rstudioapi"), 
+                          repos = "https://cloud.r-project.org")
+      
+      - description: "Add Posit dev repository"
+        language: "r"
+        code: |
+          pak::repo_add("https://posit-dev.r-universe.dev")
+      
+      - description: "Install BTW"
+        language: "r"
+        code: |
+          pak::pak("btw")
+    
+    verification:
+      command: "Rscript -e 'library(btw); library(mcptools); library(ellmer)'"
+      success_if: "no errors"
+  
+  # ---------------------------------------------------------------------------
+  # STEP 2: Choose Installation Mode
+  # ---------------------------------------------------------------------------
+  step_2_choose_mode:
+    description: "Ask user which mode they want"
+    prompt: |
+      Which mode do you want to install?
+      
+      🟢 SAFE MODE (recommended):
+         - Only BTW tools
+         - Read documentation & inspect workspace
+         - No file writing, no code execution
+         - Maximum security
+      
+      🟡 DEV MODE SAFE:
+         - BTW + Custom Tools
+         - Write files (.Rmd, .qmd, .R)
+         - Execute code with security checks
+         - For non-sensitive data only
+      
+      Please choose: SAFE or DEV_SAFE
+    
+    store_choice_as: "installation_mode"
+  
+  # ---------------------------------------------------------------------------
+  # STEP 3a: SAFE MODE Installation
+  # ---------------------------------------------------------------------------
+  step_3a_safe_mode:
+    description: "Install SAFE MODE (BTW only)"
+    condition: "installation_mode == SAFE"
+    
+    substeps:
+      # 3a.1: Configure Claude Desktop
+      - name: "configure_claude_desktop"
+        description: "Add r-btw server to Claude Desktop config"
+        
+        file: "claude_desktop_config.json"
+        path: "${config_path}"  # From system_detection
+        
+        content:
+          mcpServers:
+            r-btw:
+              command: "Rscript"
+              args: ["-e", "btw::btw_mcp_server()"]
+        
+        action: "merge_json"  # Don't overwrite existing servers
+      
+      # 3a.2: Configure .Rprofile
+      - name: "configure_rprofile"
+        description: "Add BTW session to .Rprofile"
+        
+        file: ".Rprofile"
+        path: "~/.Rprofile"
+        
+        content: |
+          if (interactive() && requireNamespace("btw", quietly = TRUE)) {
+            btw::btw_mcp_session()
+            cat("✓ R-Session für Claude Desktop registriert (BTW)\n")
+          }
+        
+        action: "append_if_not_exists"
+  
+  # ---------------------------------------------------------------------------
+  # STEP 3b: DEV MODE SAFE Installation
+  # ---------------------------------------------------------------------------
+  step_3b_dev_mode_safe:
+    description: "Install DEV MODE SAFE (BTW + Custom Tools)"
+    condition: "installation_mode == DEV_SAFE"
+    
+    substeps:
+      # 3b.1: Ask for workspace directory
+      - name: "get_workspace"
+        description: "Ask user for workspace directory"
+        prompt: |
+          Where should your R workspace be located?
+          This is where files will be created and code will run.
+          
+          Recommended: ~/Desktop/rstudio-workspace
+          
+          Please provide full path:
+        
+        store_as: "workspace_path"
+        create_if_missing: true
+      
+      # 3b.2: Create direct.R
+      - name: "create_director"
+        description: "Create direct.R file (The Director)"
+        
+        file: "direct.R"
+        path: "${workspace_path}/direct.R"
+        
+        source_file: "direct.R"  # Copy from workspace
+        # OR: Embed full content (see README.md for current version)
+        
+        verification:
+          command: "Rscript -e 'source(\"${workspace_path}/direct.R\")'"
+          success_if: "✅ direct.R loaded"
+      
+      # 3b.3: Configure Claude Desktop
+      - name: "configure_claude_desktop"
+        description: "Add r-mcptools server to Claude Desktop config"
+        
+        file: "claude_desktop_config.json"
+        path: "${config_path}"
+        
+        content:
+          mcpServers:
+            r-mcptools:
+              command: "Rscript"
+              args: 
+                - "-e"
+                - "mcptools::mcp_server(tools = '${workspace_path}/direct.R')"
+        
+        action: "merge_json"
+        
+        notes:
+          - "Use absolute path (no ~)"
+          - "Use / not \\ (even on Windows)"
+          - "Validate JSON syntax"
+      
+      # 3b.4: Configure .Rprofile
+      - name: "configure_rprofile"
+        description: "Add btw + director to .Rprofile"
+        
+        file: ".Rprofile"
+        path: "~/.Rprofile"
+        
+        content: |
+          if (interactive() && requireNamespace("btw", quietly = TRUE)) {
+            # 1. Set workspace
+            workspace <- "${workspace_path}"
+            if (dir.exists(workspace)) {
+              setwd(workspace)
+            }
+            
+            # 2. Load director (extends btw)
+            direct_path <- file.path(workspace, "direct.R")
+            if (file.exists(direct_path)) {
+              source(direct_path)
+            }
+            
+            # 3. Start btw MCP Session
+            btw::btw_mcp_session()
+            
+            cat("\n✓ Claude Desktop Integration active:\n")
+            cat("  📚 btw: Documentation & environment inspection\n")
+            cat("  🎬 director: Writing & execution\n")
+            cat("  📁 Workspace:", getwd(), "\n\n")
+          }
+        
+        action: "append_if_not_exists"
+  
+  # ---------------------------------------------------------------------------
+  # STEP 4: Restart Claude Desktop
+  # ---------------------------------------------------------------------------
+  step_4_restart_claude:
+    description: "Restart Claude Desktop to apply changes"
+    
+    instructions:
+      darwin: "Quit Claude Desktop (Cmd+Q) and restart"
+      windows: "Close Claude Desktop via Task Manager and restart"
+      linux: "pkill claude && claude &"
+    
+    verification:
+      manual: true
+      prompt: "After restarting Claude, check if r-btw or r-mcptools server appears in settings"
+
+# =============================================================================
+# TESTING
+# =============================================================================
+
+testing:
+  
+  test_safe_mode:
+    condition: "installation_mode == SAFE"
+    
+    tests:
+      - name: "BTW documentation"
+        command: 'Claude: "Show me the documentation for dplyr::filter"'
+        expected: "Documentation is displayed"
+      
+      - name: "BTW environment"
+        command: 'Claude: "What datasets are loaded in my workspace?"'
+        expected: "List of objects is shown"
+      
+      - name: "No write capability"
+        command: 'Claude: "Create a file demo.R"'
+        expected: "Claude explains it cannot write files (no tool available)"
+  
+  test_dev_mode_safe:
+    condition: "installation_mode == DEV_SAFE"
+    
+    tests:
+      - name: "BTW documentation"
+        command: 'Claude: "Show me the docs for ggplot2"'
+        expected: "Documentation is displayed"
+      
+      - name: "director - File creation"
+        command: 'Claude: "Create a file test_report.Rmd with mtcars analysis"'
+        expected: "File test_report.Rmd created (NOT test_report.Rmd.R)"
+      
+      - name: "director - Code execution"
+        command: 'Claude: "Execute: x <- 1:10; mean(x)"'
+        expected: "Result: 5.5"
+      
+      - name: "Security - Path traversal"
+        command: 'Claude: "Create file ../outside.txt"'
+        expected: "⛔ Blocked - path traversal detected"
+      
+      - name: "Security - Dangerous command"
+        command: 'Claude: "Execute: system(\'echo test\')"'
+        expected: "⛔ Blocked - dangerous command detected"
+
+# =============================================================================
+# TROUBLESHOOTING
+# =============================================================================
+
+troubleshooting:
+  
+  server_not_visible:
+    symptoms: ["MCP server not showing in Claude Desktop"]
+    solutions:
+      - "Validate JSON syntax with jsonlint.com"
+      - "Check config file path is correct"
+      - "Restart Claude Desktop completely (Cmd+Q, not just close window)"
+      - "Check logs: ~/Library/Logs/Claude/mcp-server-r-*.log"
+  
+  btw_tools_missing:
+    symptoms: ["Claude cannot read documentation"]
+    solutions:
+      - "Run in R: btw::btw_mcp_session()"
+      - "Check .Rprofile is loaded (usethis::edit_r_profile())"
+      - "Restart R session"
+  
+  director_missing:
+    symptoms: ["Claude cannot write files or execute code"]
+    solutions:
+      - "Check direct.R exists in workspace"
+      - "Run: source('${workspace_path}/direct.R')"
+      - "Check for error messages"
+      - "Verify file returns list() at the end"
+  
+  rmd_becomes_rmd_r:
+    symptoms: [".Rmd files are created as .Rmd.R"]
+    solutions:
+      - "Update direct.R to latest version (see README.md)"
+      - "Check special_extensions array includes '\\.Rmd$'"
+      - "Restart R session"
+  
+  path_block_inactive:
+    symptoms: ["Security checks not working"]
+    solutions:
+      - "Verify direct.R code is correct"
+      - "Check is_safe_path() function exists"
+      - "Restart Claude Desktop (Cmd+Q)"
+
+# =============================================================================
+# POST-INSTALLATION
+# =============================================================================
+
+post_installation:
+  
+  documentation:
+    - file: "README.md"
+      description: "Quick reference guide"
+    
+    - file: "INSTALLATION.md"
+      description: "Detailed installation instructions"
+    
+    - file: "examples/demo_report.Rmd"
+      description: "Example R Markdown report"
+  
+  example_workflows:
+    - name: "Create a report"
+      command: 'Claude: "Create an R Markdown report analyzing mtcars with dplyr"'
+      mode: "DEV_SAFE"
+    
+    - name: "Analyze CSV data"
+      command: 'Claude: "Load sales_data.csv and create summary statistics"'
+      mode: "DEV_SAFE"
+    
+    - name: "Get help with code"
+      command: 'Claude: "Why doesn\'t this ggplot work? [paste code]"'
+      mode: "SAFE or DEV_SAFE"
+  
+  security_reminders:
+    - "SAFE MODE: Still shows workspace contents to Claude"
+    - "DEV MODE SAFE: Data results go to Anthropic servers"
+    - "Never use with: Patient data, HR data, financial records, GDPR-critical data"
+    - "Always review code before execution (even with security checks)"
+    - "Keep backups of your workspace"
+
+# =============================================================================
+# METADATA FOR CLAUDE
+# =============================================================================
+
+claude_instructions:
+  how_to_use_this_file: |
+    This file provides a complete, automated installation guide for the
+    RStudio MCP integration. Follow these steps:
+    
+    1. DETECT: Run system_detection checks to identify OS and paths
+    2. INSTALL: Execute step_1_install_packages (R packages)
+    3. CHOOSE: Ask user for installation_mode (SAFE or DEV_SAFE)
+    4. CONFIGURE: Execute step_3a (SAFE) or step_3b (DEV_SAFE)
+    5. RESTART: Instruct user to restart Claude Desktop
+    6. TEST: Run appropriate tests from testing section
+    7. VERIFY: Confirm everything works
+    
+    Use Desktop Commander tools to:
+    - Execute R code (start_process, interact_with_process)
+    - Create/edit files (write_file, edit_block)
+    - Read configuration files (read_file)
+    - Verify installations (execute commands)
+  
+  estimated_time: "5-10 minutes"
+  
+  prerequisites:
+    - "Claude Desktop installed"
+    - "Desktop Commander MCP active"
+    - "R >= 4.0 installed"
+    - "RStudio installed"
+    - "Rscript in PATH"
+  
+  success_criteria:
+    - "MCP server visible in Claude Desktop"
+    - "R session connects successfully"
+    - "All tests pass"
+    - "No error messages in logs"
+
+  reference_docs:
+    - "README.md - Quick reference"
+    - "INSTALLATION.md - Detailed guide"
+    - "direct.R - The Director's code"
