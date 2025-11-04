@@ -9,6 +9,7 @@ Integrate Claude Desktop with RStudio using two complementary systems:
 
 ---
 ⚠️ **Alpha Version** – This software is in an early development stage and **should not be used in production**.
+
 ---
 
 ## 🚀 Quick Start
