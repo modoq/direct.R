@@ -8,6 +8,8 @@ Integrate Claude Desktop with RStudio using two complementary systems:
 - **direct.R**: Write files, execute code (with security)
 
 ---
+⚠️ **Alpha Version** – This software is in an early development stage and **should not be used in production**.
+---
 
 ## 🚀 Quick Start
 
